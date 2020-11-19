@@ -2,7 +2,10 @@ module Series2
 
 import ParseTree;
 import IO;
-import String;
+import ValueIO;
+
+// I'm lazy, I reuse Layout and Id (identifier) syntax.
+extend lang::std::Layout;
 
 /*
  * Syntax definition
@@ -13,11 +16,11 @@ start syntax JSON
   = Object;
   
 syntax Object
-  = "{" {Element ","}* "}"
-  ;
+  = "{" {Prop ","}* "}";
   
-syntax Element
-  = ; // Fill in  
+syntax Prop
+  = String ":" Value
+  ;
   
 syntax Value
   = String
@@ -32,22 +35,21 @@ syntax Null
   = "null";
   
 syntax Boolean
-  = // Fill in
-  | // Fill in
-  ;  
+  = "true" | "false"; 
   
 syntax Array
-  = "[" {Value ","}* "]"
-  ;  
+  = "[" {Value ","}* "]";
   
 lexical String
   = [\"] ![\"]* [\"]; // slightly simplified
   
 lexical Number
-  = ; // Fill in. Hint; think of the pattern for numbers in regular expressions. How do you accept a number in a regex?  
-
-layout Whitespace = [\ \t\n]* !>> [\ \t\n];  
+  = [1-9][0-9]* ("." [0-9]*)?
+  | [0] ("." [0-9]*)?  
+  ;
   
+  
+
 // import the module in the console
 start[JSON] example() 
   = parse(#start[JSON], 
@@ -62,29 +64,51 @@ start[JSON] example()
   
 
 
-// use visit/deep match to find all element names
+// use visit/deep match to find all property names
 // - use concrete pattern matching
 // - use "<x>" to convert a String x to str
 set[str] propNames(start[JSON] json) {
-
+  set[str] names = {};
+  
+  visit (json) {
+    case (Prop)`<String x>: <Value _>`:
+      names += "<x>"[1..-1];
+  }
+  
+  return names;
 }
 
+
 // define a recursive transformation mapping JSON to map[str,value] 
-// - every Value constructor alternative needs a 'transformation' function
+// - use the module ValueIO to parse strings into Rascal values
 // - define a data type for representing null;
 
 map[str, value] json2map(start[JSON] json) = json2map(json.top);
 
-map[str, value] json2map((JSON)`<Object obj>`)  = json2map(obj);
-map[str, value] json2map((Object)`{<{Element ","}* elems>}`) = ( /* Create the map using a comprehension */);
+data Null = null();
 
-str unquote(str s) = s[1..-1];
+map[str, value] json2map((JSON)`<Object obj>`)  = m
+  when map[str, value] m := json2value((Value)`<Object obj>`);
 
-value json2value((Value)`<String s>`)    = unquote("<s>"); // This is an example how to transform the String literal to a value
-value json2value((Value)`<Number n>`)    = -1; // ... This needs to change. The String module contains a function to convert a str to int
-// The other alternatives are missing. You need to add them.
-
-default value json2value(Value v) { throw "No tranformation function for `<v>` defined"; }
+value json2value(Value v) {
+  switch (v) {
+    case (Value)`null`: 
+      return null();
+    case (Value)`<String s>`: 
+      return readTextValueString(#str, "<s>");
+    case (Value)`<Number n>`:
+      return readTextValueString(#num, "<n>");
+    case (Value)`<Boolean b>`:
+      return readTextValueString(#bool, "<b>");
+    case (Value)`[<{Value ","}* xs>]`:
+      return [ json2value(x) | Value x <- xs ];
+    case (Value)`{<{Prop ","}* xs>}`:
+      return ( readTextValueString(#str, "<s>"): json2value(x) 
+                | (Prop)`<String s>: <Value x>` <- xs );
+    default:
+      throw "Bad value: <v>";
+  }
+}
 
 test bool example2map() = json2map(example()) == (
   "age": 42,
